@@ -1,0 +1,9 @@
+local.json
+*.iml
+.gradle/
+build/
+out/
+.idea/
+FIX.*
+.DS_Store
+target/
