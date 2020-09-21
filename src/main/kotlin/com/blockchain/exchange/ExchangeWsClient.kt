@@ -31,6 +31,7 @@ class ExchangeDeserializer : JsonDeserializer<ExchangeMsg> {
         } catch (e: Exception) {
             null
         }
+        val action = jsonObj["action"]?.asString ?: ""
 
         return when (event) {
             WsEvent.SUBSCRIBED -> Subscribed(channel, extraFields(channel, jsonObj))
@@ -49,7 +50,12 @@ class ExchangeDeserializer : JsonDeserializer<ExchangeMsg> {
             }
             WsEvent.UPDATED -> {
                 when (channel) {
-                    TradingChannel.NAME -> TradingUpdate(context.deserialize(jsonObj, Order::class.java))
+                    TradingChannel.NAME -> {
+                        when (action) {
+                            TradingAction.GET_MARGIN_ORDER_DETAILS.jsonValue -> TradingMarginOrderDetails(context.deserialize(jsonObj, MarginOrderDetails::class.java))
+                            else -> TradingUpdate(context.deserialize(jsonObj, Order::class.java))
+                        }
+                    }
                     SymbolsChannel.NAME -> SymbolsUpdate(
                         jsonObj["symbol"]!!.asString,
                         context.deserialize(jsonObj, SymbolDetails::class.java)
@@ -132,7 +138,10 @@ class ExchangeWsClient(
         timeInForce: TimeInForce = TimeInForce.GOOD_TILL_CANCEL,
         minQuantity: BigDecimal? = null,
         expireDate: Date? = null,
-        execInst: ExecInst? = null
+        execInst: ExecInst? = null,
+        marginOrder: Boolean = false,
+        collateralCurrency: String = "USD",
+        leverageRatio: BigDecimal = BigDecimal(1.0)
     ) = tradingChannel.placeOrder(
         clientOrderId,
         symbol,
@@ -144,7 +153,10 @@ class ExchangeWsClient(
         timeInForce,
         minQuantity,
         expireDate,
-        execInst
+        execInst,
+        marginOrder,
+        collateralCurrency,
+        leverageRatio
     )
 
     fun cancelOrder(orderID: String) = tradingChannel.cancelOrder(orderID)

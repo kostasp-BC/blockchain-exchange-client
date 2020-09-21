@@ -9,10 +9,10 @@ import com.tylerthrailkill.helpers.prettyprint.pp
 import java.math.BigDecimal
 
 fun main() {
-    val API_KEY = "YOUR_API_KEY_HERE"
+    val API_KEY = "YOUR_API_KEY"
 
     val client = ExchangeWsClient(
-        wsUrl = "wss://ws.blockchain.com/mercury-gateway/v1/ws",
+        wsUrl = "wss://ws.dev.blockchain.info/mercury-gateway/v1/ws",
         listener = object : ExchangeClientListener {
 
             override fun onSubscribe(
@@ -25,17 +25,7 @@ fun main() {
                     AuthChannel.NAME -> {
                         println("Successfully authenticated.")
                         client.subscribe(BalancesChannel.NAME)
-                        client.subscribe(TradingChannel.NAME, "cancelOnDisconnect" to "false")
-                    }
-                    TradingChannel.NAME -> {
-                        client.placeOrder(
-                            "TestCancelOrder",
-                            "BTC-USD",
-                            OrderType.LIMIT,
-                            OrderSide.SELL,
-                            BigDecimal("0.1"),
-                            BigDecimal("10000")
-                        )
+                        client.subscribe(TradingChannel.NAME, "cancelOnDisconnect" to "true")
                     }
                 }
             }
@@ -63,7 +53,7 @@ fun main() {
                         val action = args?.let { it["action"] as? String } ?: return
                         val text = args?.let { it["text"] as? String }
                         when (action) {
-                            TradingAction.PLACE_ORDER.jsonValue -> {
+                            TradingAction.PLACE_ORDER.jsonValue, TradingAction.PLACE_MARGIN_ORDER.jsonValue -> {
                                 val clOrdID = args?.let { it["clOrdID"] as? String }
                                 println("Failed to place order - clientOrderId=$clOrdID, reason=$text")
                             }
@@ -126,17 +116,14 @@ fun main() {
                 println("Received update from channel $channelName")
                 when (channelName) {
                     TradingChannel.NAME -> {
-                        val tradingUpdate = update as TradingUpdate
-                        val orderID = tradingUpdate.order.orderID
-                        val clOrdID = tradingUpdate.order.clOrdID
-                        tradingUpdate.pp()
-                        if (clOrdID == "TestCancelOrder") {
-                            if (tradingUpdate.order.status != OrderStatus.CANCELLED) {
-                                println("Cancelling order $orderID")
-                                client.cancelOrder(orderID)
+                        when (update) {
+                            is TradingUpdate -> {
+                                val orderID = update.order.orderID
+                                val clOrdID = update.order.clOrdID
+                                update.pp()
                             }
-                            if (tradingUpdate.order.status == OrderStatus.CANCELLED) {
-                                println("Order $orderID was cancelled")
+                            is TradingMarginOrderDetails -> {
+                                update.pp()
                             }
                         }
                     }
@@ -180,9 +167,10 @@ fun main() {
             "Order$it",
             "BTC-USD",
             OrderType.LIMIT,
-            OrderSide.SELL,
-            BigDecimal("0.1"),
-            BigDecimal("10000")
+            OrderSide.BUY,
+            BigDecimal("0.01"),
+            BigDecimal("10000"),
+            marginOrder = true
         )
     }
     client.cancelAllOrders("BTC-USD")

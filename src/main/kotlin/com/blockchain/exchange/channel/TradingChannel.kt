@@ -84,12 +84,16 @@ fun ExecInst?.enforceNull() {
 enum class TradingAction(val jsonValue: String) {
     @SerializedName("NewOrderSingle")
     PLACE_ORDER("NewOrderSingle"),
+    @SerializedName("NewOrderSingleMargin")
+    PLACE_MARGIN_ORDER("NewOrderSingleMargin"),
     @SerializedName("CancelOrderRequest")
     CANCEL_ORDER("CancelOrderRequest"),
     @SerializedName("OrderMassCancelRequest")
     CANCEL_ALL_ORDERS("OrderMassCancelRequest"),
     @SerializedName("OrderMassStatusRequest")
-    LIST_LIVE_ORDERS("OrderMassStatusRequest")
+    LIST_LIVE_ORDERS("OrderMassStatusRequest"),
+    @SerializedName("PositionMarginDetails")
+    GET_MARGIN_ORDER_DETAILS("PositionMarginDetails")
 }
 
 class TradingChannel(
@@ -104,6 +108,26 @@ class TradingChannel(
         const val NAME = "trading"
     }
 
+    fun getMarginOrderDetails(
+        requestId: String,
+        symbol: String,
+        collateralCurrency: String,
+        side: OrderSide,
+        amount: BigDecimal,
+        leverageRatio: BigDecimal
+    ) {
+        val orderParams = mutableMapOf<String, Any>().also { params ->
+            params["requestId"] = requestId
+            params["symbol"] = symbol
+            params["collateralCurrency"] = collateralCurrency
+            params["side"] = side.jsonValue
+            params["amount"] = amount.toPlainString()
+            params["leverageRatio"] = leverageRatio.toPlainString()
+        }
+
+        sendMsg(TradingAction.GET_MARGIN_ORDER_DETAILS.jsonValue, orderParams)
+    }
+
     fun placeOrder(
         clientOrderId: String,
         symbol: String,
@@ -115,7 +139,10 @@ class TradingChannel(
         timeInForce: TimeInForce = TimeInForce.GOOD_TILL_CANCEL,
         minQuantity: BigDecimal? = null,
         expireDate: Date? = null,
-        execInst: ExecInst? = null
+        execInst: ExecInst? = null,
+        marginOrder: Boolean = false,
+        collateralCurrency: String = "USD",
+        leverageRatio: BigDecimal = BigDecimal(1.0)
     ) {
         if (clientOrderId.length > 20) throw IllegalArgumentException("Client order ID must not be longer than 20 characters")
 
@@ -175,9 +202,13 @@ class TradingChannel(
             minQuantity?.also { params["minQty"] = minQuantity.toPlainString() }
             expireDateInt?.also { params["expireDate"] = expireDateInt }
             execInst?.also { params["execInst"] = execInst }
+            if (marginOrder) {
+                params["collateralCurrency"] = collateralCurrency
+                params["leverageRatio"] = leverageRatio
+            }
         }
 
-        sendMsg(TradingAction.PLACE_ORDER.jsonValue, orderParams)
+        sendMsg(if (marginOrder) TradingAction.PLACE_MARGIN_ORDER.jsonValue else TradingAction.PLACE_ORDER.jsonValue, orderParams)
     }
 
     fun cancelOrder(orderID: String) = sendMsg(TradingAction.CANCEL_ORDER.jsonValue, mapOf("orderID" to orderID))
@@ -215,7 +246,25 @@ class Order(
     @SerializedName("lastShares")
     val lastFillQuantity: BigDecimal,
     val tradeId: String,
-    val fee: BigDecimal
+    val fee: BigDecimal,
+    @SerializedName("price")
+    val limitPrice: BigDecimal?,
+    @SerializedName("stopPx")
+    val stopPrice: BigDecimal?,
+    val marginOrder: Boolean,
+    val collateralCurrency: String?,
+    val markPrice: BigDecimal?,
+    val interestAmount: BigDecimal?,
+    val positionMargin: BigDecimal?,
+    val marginCallPrice: BigDecimal?,
+    val liquidationPrice: BigDecimal?
+)
+
+class MarginOrderDetails(
+    val requestId: String,
+    val callPrice: BigDecimal,
+    val liquidationPrice: BigDecimal,
+    val bankruptcyPrice: BigDecimal
 )
 
 class TradingSnapshot(val orders: Array<Order>) : Snapshot {
@@ -224,6 +273,11 @@ class TradingSnapshot(val orders: Array<Order>) : Snapshot {
 }
 
 class TradingUpdate(val order: Order) : Update {
+    override val channel: String
+        get() = TradingChannel.NAME
+}
+
+class TradingMarginOrderDetails(val marginOrderDetails: MarginOrderDetails) : Update {
     override val channel: String
         get() = TradingChannel.NAME
 }
